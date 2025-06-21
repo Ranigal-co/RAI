@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from model import Model
 from collections import defaultdict
 from collections import deque
+from summarizer import HistorySummarizer
 
 class RequestState:
     def __init__(self, chat_id, status_msg):
@@ -32,7 +33,11 @@ class RAI:
         self.model = Model()
         self.active_requests = defaultdict(dict)
         self.chat_histories = defaultdict(deque)
-        self.MAX_HISTORY_LENGTH = 20
+        self.MAX_HISTORY_LENGTH = 10
+
+        self.summarizer = HistorySummarizer()
+        self.COMPRESSION_THRESHOLD = 5
+        self.MAX_TOKENS_BEFORE_COMPRESS = 1500
 
         self._register_handlers()
         
@@ -68,6 +73,8 @@ class RAI:
                     self.bot.send_message(chat_id, "Моя память очищена!")
                 else:
                     self.bot.send_message(chat_id, "Нечего забывать -_-")
+            elif '/fullhistory' in message.text:
+                self.show_full_history(message)
             else:
                 self.process_message(message)
     
@@ -87,6 +94,33 @@ class RAI:
             del self.active_requests[request_id]
         
         self.bot.send_message(message.chat.id, "Молчу :3")
+    
+    def compress_history(self, chat_id):
+        """Сжимает историю диалога и заменяет ее сжатой версией"""
+        history = list(self.chat_histories[chat_id])
+        history_text = "\n".join([f"User: {u}\nBot: {b}" for u,b in history])
+        
+        try:
+            summary = self.summarizer.summarize(history_text)
+            # Заменяем историю на сжатую версию
+            self.chat_histories[chat_id] = deque([("История диалога", summary)])
+            return summary
+        except Exception as e:
+            print(f"Ошибка сжатия истории: {e}")
+            return None
+    
+    def show_full_history(self, message):
+        """Показывает пользователю полную историю диалога"""
+        chat_id = message.chat.id
+        if chat_id not in self.chat_histories or not self.chat_histories[chat_id]:
+            self.bot.send_message(chat_id, "История диалога пуста")
+            return
+        
+        history_text = "Полная история:\n\n"
+        for i, (user, bot) in enumerate(self.chat_histories[chat_id], 1):
+            history_text += f"{i}. Вы: {user}\n   Бот: {bot}\n\n"
+        
+        self.bot.send_message(chat_id, history_text[:4000])  # Обрезаем если слишком длинное
     
     def process_message(self, message):
         try:
@@ -177,6 +211,8 @@ class RAI:
                                 state.chat_id, 
                                 response_snapshot
                             )
+            if len(self.chat_histories[message.chat.id]) >= self.COMPRESSION_THRESHOLD:
+                self.compress_history(message.chat.id)
             
             # Вызываем модель
             self.model.modelMessage(

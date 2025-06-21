@@ -17,9 +17,15 @@ class Model:
         ]
         
         # Добавляем историю диалога
-        for user_msg, assistant_resp in history:
-            messages.append({"role": "user", "content": user_msg})
-            messages.append({"role": "assistant", "content": assistant_resp})
+        for msg in history:
+            if msg[0] == "История диалога":
+                messages.append({
+                    "role": "system",
+                    "content": f"Контекст предыдущего диалога (сжатая версия): {msg[1]}"
+                })
+            else:
+                messages.append({"role": "user", "content": msg[0]})
+                messages.append({"role": "assistant", "content": msg[1]})
         
         # Добавляем текущее сообщение (убираем /no_think)
         messages.append({"role": "user", "content": f"{userMessage} /no_think"})
