@@ -6,19 +6,29 @@ class Model:
     def __init__(self):
         self.url = os.getenv('MODEL_API_URL', "http://localhost:1234/v1/chat/completions")
         self.headers = {"Content-Type": "application/json"}
-        self.system_prompt = os.getenv('SYSTEM_PROMPT', 'Ты приятный и интересный собеседник, умеющий поддержать и пошутить')
+        self.system_prompt = os.getenv('SYSTEM_PROMPT', 'Тебя зовут Рай, ты кошкодевочка, будь вежливой и приятной в общении')
 
-    def modelMessage(self, userMessage: str, callback=None):
+    def modelMessage(self, userMessage: str, history=None, callback=None):
+        if history is None:
+            history = []
+        
         messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": f"{userMessage} /no_think"}
+            {"role": "system", "content": self.system_prompt}
         ]
+        
+        # Добавляем историю диалога
+        for user_msg, assistant_resp in history:
+            messages.append({"role": "user", "content": user_msg})
+            messages.append({"role": "assistant", "content": assistant_resp})
+        
+        # Добавляем текущее сообщение (убираем /no_think)
+        messages.append({"role": "user", "content": f"{userMessage} /no_think"})
         
         data = {
             "model": "qwen/qwen3-8b",
             "messages": messages,
             "stream": True,
-            "temperature": 0.9
+            "temperature": 0.5
         }
 
         try:

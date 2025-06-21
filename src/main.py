@@ -6,6 +6,7 @@ import re
 from dotenv import load_dotenv
 from model import Model
 from collections import defaultdict
+from collections import deque
 
 class RequestState:
     def __init__(self, chat_id, status_msg):
@@ -30,6 +31,9 @@ class RAI:
         self.bot = telebot.TeleBot(bot_token)
         self.model = Model()
         self.active_requests = defaultdict(dict)
+        self.chat_histories = defaultdict(deque)
+        self.MAX_HISTORY_LENGTH = 20
+
         self._register_handlers()
         
         # Запускаем фоновый поток для очистки старых запросов
@@ -55,9 +59,15 @@ class RAI:
     def _register_handlers(self):
         @self.bot.message_handler(content_types=['text'])
         def handle_message(message):
-            # Используем регулярное выражение для поиска команды /stop в любом контексте
-            if re.search(r'/stop\b', message.text, re.IGNORECASE):
+            if '/stop' in message.text:
                 self.handle_stop(message)
+            elif '/clear' in message.text:
+                chat_id = message.chat.id
+                if chat_id in self.chat_histories:
+                    self.chat_histories[chat_id] = deque()
+                    self.bot.send_message(chat_id, "Моя память очищена!")
+                else:
+                    self.bot.send_message(chat_id, "Нечего забывать -_-")
             else:
                 self.process_message(message)
     
@@ -75,6 +85,8 @@ class RAI:
             state = self.active_requests[request_id]
             state.cancelled = True
             del self.active_requests[request_id]
+        
+        self.bot.send_message(message.chat.id, "Молчу :3")
     
     def process_message(self, message):
         try:
@@ -169,12 +181,18 @@ class RAI:
             # Вызываем модель
             self.model.modelMessage(
                 userMessage=message.text.replace(self.NameBot, ""),
+                history=list(self.chat_histories[message.chat.id]),
                 callback=chunk_handler
             )
             
             # Финальная обработка
             if not state.cancelled and not state.is_first_chunk and state.full_response.strip():
                 self._send_long_message(state)
+                # Сохраняем в историю
+                self.chat_histories[message.chat.id].append((message.text.replace(self.NameBot, ""), state.full_response))
+                # Ограничиваем размер истории
+                if len(self.chat_histories[message.chat.id]) > self.MAX_HISTORY_LENGTH:
+                    self.chat_histories[message.chat.id].popleft()
                 
             # Удаляем состояние запроса после завершения
             if request_id in self.active_requests:
